@@ -88,6 +88,8 @@ void GlooController::Initialize() {
     cross_size_ = gloo_context_.cross_ctx->size;
   }
 
+  response_cache_.clear();
+
   LOG(DEBUG) << "Gloo controller initialized.";
 }
 

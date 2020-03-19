@@ -127,6 +127,7 @@ def check_rank(epoch):
 @hvd.elastic.run
 def train(state):
     # post synchronization event (worker added, worker removed) init ...
+    print('TRAIN {} {}'.format(hvd.rank(), hvd.size()))
     for state.epoch in range(state.epoch, args.epochs + 1):
         state.model.train()
 
@@ -137,7 +138,7 @@ def train(state):
             if state.batch >= steps_remaining:
                 break
 
-            check_rank(state.epoch)
+            # check_rank(state.epoch)
             if args.cuda:
                 data, target = data.cuda(), target.cuda()
             state.optimizer.zero_grad()
