@@ -47,29 +47,29 @@ mnist_model = tf.keras.Sequential([
 ])
 loss = tf.losses.SparseCategoricalCrossentropy()
 
-# Horovod: model must be built before beginning elastic training
-mnist_model.build((None, 28, 28, 1))
-
 # Horovod: adjust learning rate based on number of GPUs.
 lr = 0.001
 opt = tf.optimizers.Adam(lr * hvd.size())
 
-checkpoint_dir = './checkpoints'
-checkpoint = tf.train.Checkpoint(model=mnist_model, optimizer=opt)
-
 
 @tf.function
-def training_step(images, labels):
+def training_step(images, labels, allreduce=True):
     with tf.GradientTape() as tape:
         probs = mnist_model(images, training=True)
         loss_value = loss(labels, probs)
 
     # Horovod: add Horovod Distributed GradientTape.
-    tape = hvd.DistributedGradientTape(tape)
+    if allreduce:
+        tape = hvd.DistributedGradientTape(tape)
 
     grads = tape.gradient(loss_value, mnist_model.trainable_variables)
     opt.apply_gradients(zip(grads, mnist_model.trainable_variables))
     return loss_value
+
+
+# Horovod: initialize model and optimizer state so we can synchronize across workers
+for batch_idx, (images, labels) in enumerate(dataset.take(1)):
+    training_step(images, labels, allreduce=False)
 
 
 @hvd.elastic.run
@@ -96,6 +96,9 @@ state = hvd.elastic.TensorFlowKerasState(mnist_model, opt, batch=0)
 state.register_reset_callbacks([on_state_reset])
 
 train(state)
+
+checkpoint_dir = './checkpoints'
+checkpoint = tf.train.Checkpoint(model=mnist_model, optimizer=opt)
 
 # Horovod: save checkpoints only on worker 0 to prevent other workers from
 # corrupting it.
