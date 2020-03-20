@@ -89,7 +89,7 @@ def train(state):
 
 
 def on_state_reset():
-    tf.keras.backend.set_value(mnist_model.optimizer.lr, lr * hvd.size())
+    opt.lr.assign(lr * hvd.size())
 
 
 state = hvd.elastic.TensorFlowKerasState(mnist_model, opt, batch=0)
