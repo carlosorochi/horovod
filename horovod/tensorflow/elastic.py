@@ -20,8 +20,10 @@ from distutils.version import LooseVersion
 import tensorflow as tf
 
 from tensorflow.python.framework import ops
+from tensorflow.python.framework.errors_impl import UnknownError
 
 from horovod.common.elastic import run_fn, ObjectState
+from horovod.common.exceptions import HorovodInternalError
 from horovod.tensorflow.functions import broadcast_object, broadcast_variables
 from horovod.tensorflow.mpi_ops import _executing_eagerly, init, shutdown
 
@@ -49,7 +51,15 @@ def run(func):
               must be a `horovod.common.elastic.State` object used to synchronize state across
               workers.
     """
-    return run_fn(func, _reset)
+    def wrapper(state, *args, **kwargs):
+        try:
+            return func(state, *args, **kwargs)
+        except UnknownError as e:
+            if 'HorovodAllreduce' in e.message or \
+                    'HorovodAllgather' in e.message or \
+                    'HorovodBroadcast' in e.message:
+                raise HorovodInternalError(e)
+    return run_fn(wrapper, _reset)
 
 
 def _reset():
