@@ -21,5 +21,5 @@ class HorovodInternalError(RuntimeError):
     pass
 
 
-class WorkersAvailableException(RuntimeError):
+class HostsUpdatedException(RuntimeError):
     pass

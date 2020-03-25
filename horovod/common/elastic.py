@@ -19,7 +19,7 @@ import functools
 
 from six.moves import queue
 
-from horovod.common.exceptions import HorovodInternalError, WorkersAvailableException
+from horovod.common.exceptions import HorovodInternalError, HostsUpdatedException
 from horovod.run.elastic.worker import WorkerNotificationManager
 
 
@@ -30,7 +30,7 @@ class State(object):
     """State representation used for tracking in memory state across workers."""
     def __init__(self):
         self._host_messages = queue.Queue()
-        self._known_hosts = set()
+        self._last_updated_timestamp = 0
         self._reset_callbacks = []
 
     def register_reset_callbacks(self, callbacks):
@@ -48,9 +48,8 @@ class State(object):
         for callback in self._reset_callbacks:
             callback()
 
-    def on_hosts_added(self, hosts):
-        for host in hosts:
-            self._host_messages.put(host)
+    def on_hosts_updated(self, timestamp):
+        self._host_messages.put(timestamp)
 
     def commit(self):
         """Commits all modifications to state tracked by this object to host memory.
@@ -78,11 +77,25 @@ class State(object):
         raise NotImplementedError()
 
     def _update_known_hosts(self):
-        if not self._host_messages.empty():
-            host = self._host_messages.get()
-            if host not in self._known_hosts:
-                self._known_hosts.add(host)
-                raise WorkersAvailableException()
+        # Iterate through the update messages sent from the server. If the update timestamp
+        # is greater than the last update timestamp, then trigger a HostsUpdatedException.
+        updated = False
+        while not self._host_messages.empty():
+            timestamp = self._host_messages.get()
+            if timestamp > self._last_updated_timestamp:
+                self._last_updated_timestamp = timestamp
+                updated = True
+
+        # In order to ensure all workers raise the exception at the same time, we need to sync
+        # the updated state across all the workers.
+        updated = self._sync_host_updates(updated)
+
+        # At this point, updated state is globally consistent across all ranks.
+        if updated:
+            raise HostsUpdatedException()
+
+    def _sync_host_updates(self, updated):
+        raise NotImplementedError()
 
 
 class ObjectState(State):
@@ -118,6 +131,9 @@ class ObjectState(State):
         for attr, value in self._saved_state.items():
             setattr(self, attr, value)
 
+    def _sync_host_updates(self, updated):
+        return self._bcast_object(updated, root_rank=0)
+
 
 def run_fn(func, reset):
     @functools.wraps(func)
@@ -137,7 +153,7 @@ def run_fn(func, reset):
                     return func(state, *args, **kwargs)
                 except HorovodInternalError:
                     state.restore()
-                except WorkersAvailableException:
+                except HostsUpdatedException:
                     pass
                 reset_required = True
         finally:

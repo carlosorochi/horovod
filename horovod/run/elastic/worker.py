@@ -30,13 +30,13 @@ HOROVOD_HOSTNAME = 'HOROVOD_HOSTNAME'
 HOROVOD_LOCAL_RANK = 'HOROVOD_LOCAL_RANK'
 
 
-class HostsAddedRequest(object):
-    """Notifies worker that new hosts have been made available."""
-    def __init__(self, hosts):
-        self.hosts = hosts
+class HostsUpdatedRequest(object):
+    """Notifies worker that the set of available hosts/slots has changed."""
+    def __init__(self, timestamp):
+        self.timestamp = timestamp
 
 
-class HostsAddedResponse(object):
+class HostsUpdatedResponse(object):
     pass
 
 
@@ -79,9 +79,9 @@ class WorkerNotificationManager(object):
     def remove_listener(self, listener):
         self._listeners.remove(listener)
 
-    def handle_hosts_added(self, hosts):
+    def handle_hosts_updated(self, timestamp):
         for listener in self._listeners:
-            listener.on_hosts_added(hosts)
+            listener.on_hosts_updated(timestamp)
 
     def _create_id(self, hostname, local_rank):
         return '{}:{}'.format(hostname, local_rank)
@@ -97,9 +97,9 @@ class WorkerNotificationService(network.BasicService):
         self._manager = manager
 
     def _handle(self, req, client_address):
-        if isinstance(req, HostsAddedRequest):
-            self._manager.handle_hosts_added(req.hosts)
-            return HostsAddedResponse()
+        if isinstance(req, HostsUpdatedRequest):
+            self._manager.handle_hosts_updated(req.timestamp)
+            return HostsUpdatedResponse()
 
         return super(WorkerNotificationService, self)._handle(req, client_address)
 
@@ -112,5 +112,5 @@ class WorkerNotificationClient(network.BasicClient):
                                                        verbose,
                                                        match_intf=match_intf)
 
-    def notify_hosts_added(self, hosts):
-        self._send(HostsAddedRequest(hosts))
+    def notify_hosts_updated(self, timestamp):
+        self._send(HostsUpdatedRequest(timestamp))

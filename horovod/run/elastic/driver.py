@@ -18,6 +18,7 @@ from __future__ import absolute_import
 import logging
 import os
 import threading
+import time
 
 from collections import defaultdict
 
@@ -32,6 +33,10 @@ SUCCESS = 'SUCCESS'
 FAILURE = 'FAILURE'
 
 DISCOVER_HOSTS_FREQUENCY_SECS = 1.0
+
+
+def _epoch_time_s():
+    return int(time.time())
 
 
 class WorkerStateRegistry(object):
@@ -291,20 +296,11 @@ class ElasticDriver(object):
         prev_hosts = self._available_hosts
         prev_slots = self._available_slots
         available_hosts, available_slots = self._find_available_hosts_and_slots()
-        self._notify_workers_host_changes(prev_hosts, available_hosts)
-        self._available_hosts, self._available_slots = available_hosts, available_slots
-        return prev_hosts != self._available_hosts or prev_slots != self._available_slots
-
-    def _notify_workers_host_changes(self, prev_hosts, hosts):
-        new_hosts = hosts - prev_hosts
-        if new_hosts:
-            for (host, slot), client in self._worker_clients.items():
-                try:
-                    client.notify_hosts_added(new_hosts)
-                except:
-                    if self._verbose >= 2:
-                        print('WARNING: failed to notify {}[{}] of new hosts: {}'
-                              .format(host, slot, new_hosts))
+        if prev_hosts != available_hosts or prev_slots != available_slots:
+            self._notify_workers_host_changes()
+            self._available_hosts, self._available_slots = available_hosts, available_slots
+            return True
+        return False
 
     def _find_available_hosts_and_slots(self):
         stdout = six.StringIO()
@@ -323,6 +319,16 @@ class ElasticDriver(object):
                 available_slots[host] = int(slots)
             availabe_hosts.add(host)
         return availabe_hosts, available_slots
+
+    def _notify_workers_host_changes(self):
+        timestamp = _epoch_time_s()
+        for (host, slot), client in self._worker_clients.items():
+            try:
+                client.notify_hosts_updated(timestamp)
+            except:
+                if self._verbose >= 2:
+                    print('WARNING: failed to notify {}[{}] of host updates'
+                          .format(host, slot))
 
     def _update_assigned_hosts(self):
         new_assigned_hosts = []
