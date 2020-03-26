@@ -39,9 +39,10 @@ fi
 if [ "$epoch" == "0" ]; then
     echo "localhost:2"
 elif [ "$epoch" == "1" ]; then
-    echo "localhost:4"
-else
     echo "localhost:2"
+    echo "127.0.0.1:2"
+else
+    echo "127.0.0.1:2"
 fi
 """
 
