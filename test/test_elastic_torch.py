@@ -64,14 +64,16 @@ class ElasticTorchTests(unittest.TestCase):
         training_script = os.path.join(os.path.dirname(__file__), 'data/elastic_torch_main.py')
         with temppath() as logfile:
             with temp_discovery_script(logfile) as discovery_script:
-                with override_args('horovodrun',
-                                   '-np', '2',
-                                   '--min-np', '2',
-                                   '--max-np', '4',
-                                   '--host-discovery-script', discovery_script,
-                                   training_script,
-                                   '--epoch-to-exit', '10',
-                                   '--logfile', logfile):
+                command_args = ['horovodrun',
+                                '-np', '2',
+                                '--min-np', '2',
+                                '--max-np', '4',
+                                '--host-discovery-script', discovery_script,
+                                'python', training_script,
+                                '--epoch-to-exit', '10',
+                                '--logfile', logfile]
+                print(' '.join(command_args))
+                with override_args(*command_args):
                     args = parse_args()
                     env = {}
                     config_parser.set_env_from_args(env, args)

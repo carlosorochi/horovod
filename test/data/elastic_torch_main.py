@@ -69,13 +69,15 @@ def log_state(state):
         'batch': state.batch,
         'commits': state.commits,
         'rank': start_rank,
-        'size': hvd.size()}
+        'size': hvd.size(),
+        'rendezvous': state.rendezvous}
     with open(args.logfile, 'a') as f:
         f.write(json.dumps(state_dict) + os.linesep)
 
 
 @hvd.elastic.run
 def train(state):
+    state.rendezvous += 1
     for state.epoch in range(state.epoch, args.epochs):
         check_exit(state.epoch)
 
@@ -103,6 +105,6 @@ def on_state_reset():
         param_group['lr'] = args.lr * hvd.size()
 
 
-state = hvd.elastic.TorchState(model, optimizer, batch=0, epoch=0, commits=0)
+state = hvd.elastic.TorchState(model, optimizer, batch=0, epoch=0, commits=0, rendezvous=0)
 state.register_reset_callbacks([on_state_reset])
 train(state)

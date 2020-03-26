@@ -276,7 +276,7 @@ class ElasticDriverTests(unittest.TestCase):
         mock_find_available_hosts_and_slots.return_value = hosts, slots
 
         rendezvous = RendezvousServer()
-        driver = ElasticDriver(None, min_np=2, max_np=4, slots=2)
+        driver = ElasticDriver(rendezvous, None, min_np=2, max_np=4, slots=2)
         driver.wait_for_available_hosts(min_np=2)
         handler = create_rendezvous_handler(driver)
 
@@ -286,18 +286,27 @@ class ElasticDriverTests(unittest.TestCase):
         nic = list(common_intfs)[0]
 
         rank_results = {}
-        expected_hosts = ['host-2']
 
         class NotificationReceiver:
             def __init__(self):
-                self.hosts = []
+                self.events = []
 
-            def on_hosts_added(self, hosts):
-                self.hosts.extend(hosts)
+            def on_hosts_updated(self, timestamp):
+                self.events.append(timestamp)
 
         def add_host():
             hosts = {'host-1', 'host-2'}
             slots = {'host-1': 2, 'host-2': 2}
+            mock_find_available_hosts_and_slots.return_value = hosts, slots
+
+        def add_slots():
+            hosts = {'host-1', 'host-2'}
+            slots = {'host-1': 4, 'host-2': 4}
+            mock_find_available_hosts_and_slots.return_value = hosts, slots
+
+        def remove_host():
+            hosts = {'host-2'}
+            slots = {'host-2': 4}
             mock_find_available_hosts_and_slots.return_value = hosts, slots
 
         def exec_command(slot_info, events):
@@ -312,11 +321,20 @@ class ElasticDriverTests(unittest.TestCase):
             manager.register_listener(notification_receiver)
 
             driver.record_ready(slot_info.hostname, slot_info.local_rank)
+
             if slot_info.rank == 0:
                 add_host()
-
             driver.wait_for_available_hosts(4)
-            rank_results[slot_info.rank] = notification_receiver.hosts
+
+            if slot_info.rank == 0:
+                add_slots()
+            driver.wait_for_available_hosts(8)
+
+            if slot_info.rank == 0:
+                remove_host()
+            driver.wait_for_available_hosts(4, max_np=4)
+
+            rank_results[slot_info.rank] = notification_receiver.events
             return 0, time.time()
 
         driver.start(np=2, create_worker_fn=exec_command)
@@ -326,9 +344,8 @@ class ElasticDriverTests(unittest.TestCase):
             assert exit_code == 0, name
 
         assert len(rank_results) == 2
-        for rank, hosts in rank_results.items():
-            assert len(hosts) == 1
-            assert hosts == expected_hosts
+        for rank, timestamps in rank_results.items():
+            assert len(timestamps) == 3
 
         rendezvous.stop_server()
         driver.stop()
