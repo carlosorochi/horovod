@@ -17,10 +17,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import contextlib
 import copy
 import os
-import sys
 import unittest
 import warnings
 
@@ -32,28 +30,7 @@ from horovod.run.common.util.host_hash import _hash, host_hash
 from horovod.run.mpi_run import _get_mpi_implementation_flags, _LARGE_CLUSTER_THRESHOLD as large_cluster_threshold, mpi_run
 from horovod.run.run import parse_args, parse_host_files
 
-
-@contextlib.contextmanager
-def override_args(tool=None, *args):
-    old = sys.argv[:]
-    try:
-        if tool:
-            sys.argv[0] = tool
-        sys.argv[1:] = args
-        yield
-    finally:
-        sys.argv = old
-
-
-@contextlib.contextmanager
-def override_env(env):
-    old = os.environ.copy()
-    try:
-        os.environ.update(env)
-        yield
-    finally:
-        os.environ.clear()
-        os.environ.update(old)
+from common import override_args, override_env
 
 
 class RunTests(unittest.TestCase):

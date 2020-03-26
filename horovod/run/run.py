@@ -624,6 +624,8 @@ def parse_args():
         config_parser.set_args_from_config(args, config, override_args)
     config_parser.validate_config_args(args)
 
+    args.run_func = None
+
     return args
 
 
@@ -923,7 +925,6 @@ def run_commandline():
         logging.addLevelName(logging.NOTSET, 'TRACE')
         logging.basicConfig(level=logging.getLevelName(args.log_level))
 
-    args.run_func = None
     if is_elastic(args):
         _run_elastic(args)
     else:

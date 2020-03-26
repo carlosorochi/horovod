@@ -21,6 +21,7 @@ from __future__ import print_function
 import contextlib
 import os
 import shutil
+import sys
 import tempfile
 
 
@@ -79,3 +80,26 @@ def temppath():
                 os.remove(path)
             else:
                 shutil.rmtree(path)
+
+
+@contextlib.contextmanager
+def override_args(tool=None, *args):
+    old = sys.argv[:]
+    try:
+        if tool:
+            sys.argv[0] = tool
+        sys.argv[1:] = args
+        yield
+    finally:
+        sys.argv = old
+
+
+@contextlib.contextmanager
+def override_env(env):
+    old = os.environ.copy()
+    try:
+        os.environ.update(env)
+        yield
+    finally:
+        os.environ.clear()
+        os.environ.update(old)

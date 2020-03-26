@@ -38,13 +38,13 @@ def wait_for_one(events):
         time.sleep(0.01)
 
 
-class ElasticTests(unittest.TestCase):
+class ElasticDriverTests(unittest.TestCase):
     """
     Tests for async processing logic in horovod.elastic.
     """
 
     def __init__(self, *args, **kwargs):
-        super(ElasticTests, self).__init__(*args, **kwargs)
+        super(ElasticDriverTests, self).__init__(*args, **kwargs)
         warnings.simplefilter('module')
 
     @mock.patch('horovod.run.elastic.driver.ElasticDriver._find_available_hosts_and_slots')
