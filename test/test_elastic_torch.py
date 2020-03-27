@@ -19,6 +19,7 @@ from __future__ import print_function
 
 import contextlib
 import json
+import logging
 import os
 import pytest
 import unittest
@@ -42,7 +43,6 @@ elif [ "$epoch" == "1" ]; then
     echo "localhost:2"
     echo "127.0.0.1:2"
 else
-    echo "localhost:2"
     echo "127.0.0.1:2"
 fi
 """

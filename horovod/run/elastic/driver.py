@@ -269,9 +269,13 @@ class ElasticDriver(object):
         return len(self._host_assignments[host])
 
     def get_slot_info(self, host, slot):
+        return self._host_assignments[host][slot] if self.has_rank_assignment(host, slot) \
+            else hosts.INVALID_SLOT_INFO
+
+    def has_rank_assignment(self, host, slot):
         if self._hosts[host].is_blacklisted():
-            return hosts.INVALID_SLOT_INFO
-        return self._host_assignments[host][slot]
+            return False
+        return host in self._host_assignments and len(self._host_assignments[host]) > slot
 
     def get_available_hosts(self):
         return list(self._available_hosts)
@@ -352,6 +356,7 @@ class ElasticDriver(object):
         for slot_info in host_assignments_list:
             host_assignments[slot_info.hostname].append(slot_info)
         self._host_assignments = host_assignments
+        logging.info('host assignments: {}'.format(host_assignments))
         self._world_size = len(host_assignments_list)
         self._rendezvous.httpd.init(host_assignments_list)
 
@@ -382,8 +387,8 @@ class ElasticDriver(object):
         thread.start()
 
     def _handle_worker_exit(self, slot_info, exit_code, timestamp):
-        if self._hosts[slot_info.hostname].is_blacklisted():
-            # Ignore blacklisted hosts
+        if not self.has_rank_assignment(slot_info.hostname, slot_info.local_rank):
+            # Ignore hosts that are not assigned a rank
             logging.debug('host {} has been blacklisted, ignoring exit from local_rank={}'
                           .format(slot_info.hostname, slot_info.local_rank))
             return

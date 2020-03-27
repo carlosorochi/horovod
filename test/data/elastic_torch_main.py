@@ -47,8 +47,9 @@ batch_size = 32
 data = torch.randn(batch_size, 2)
 target = torch.LongTensor(batch_size).random_() % 2
 
+lr = 0.001
 model = torch.nn.Sequential(torch.nn.Linear(2, 2))
-optimizer = torch.optim.SGD(model.parameters(), lr=0.001 * hvd.size())
+optimizer = torch.optim.SGD(model.parameters(), lr=lr * hvd.size())
 optimizer = hvd.DistributedOptimizer(optimizer, named_parameters=model.named_parameters())
 
 start_rank = int(os.environ.get('HOROVOD_RANK', 0))
@@ -78,6 +79,7 @@ def train(state):
         check_exit(state.epoch)
 
         for state.batch in range(state.batch, args.batches_per_epoch):
+            print('epoch {} batch {}'.format(state.epoch, state.batch))
             optimizer.zero_grad()
             output = model(data)
             loss = F.cross_entropy(output, target)
@@ -85,7 +87,6 @@ def train(state):
             optimizer.step()
 
             if (state.batch + 1) % args.batches_per_commit == 0:
-                # print('commit empty? {}'.format(state._host_messages.empty()))
                 state.commits += 1
                 state.commit()
 
@@ -101,14 +102,12 @@ def train(state):
             while state._host_messages.empty():
                 if int(time.time()) - start > 3:
                     raise TimeoutError('Timed out waiting for notifications from driver.')
-                print('sleep')
                 time.sleep(0.1)
-        print('empty? {}'.format(state._host_messages.empty()))
 
 
 def on_state_reset():
     for param_group in optimizer.param_groups:
-        param_group['lr'] = args.lr * hvd.size()
+        param_group['lr'] = lr * hvd.size()
 
 
 state = hvd.elastic.TorchState(model, optimizer, batch=0, epoch=0, commits=0, rendezvous=0)
