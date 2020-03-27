@@ -38,6 +38,8 @@ parser.add_argument('--epoch-to-exit', type=int, default=2,
                     help='epoch at the start of which to exit on rank 0')
 parser.add_argument('--logfile', default='/tmp/logfile.txt',
                     help='log file to record results (one line per epoch)')
+parser.add_argument('--discovery-schedule', default='[]',
+                    help='JSON string specifying schedule of host updates each epoch')
 
 args = parser.parse_args()
 
@@ -52,7 +54,12 @@ model = torch.nn.Sequential(torch.nn.Linear(2, 2))
 optimizer = torch.optim.SGD(model.parameters(), lr=lr * hvd.size())
 optimizer = hvd.DistributedOptimizer(optimizer, named_parameters=model.named_parameters())
 
+hostname = os.environ.get('HOROVOD_HOSTNAME')
 start_rank = int(os.environ.get('HOROVOD_RANK', 0))
+
+discovery_schedule = json.loads(args.discovery_schedule)
+epoch_to_hosts = {epoch: hosts for epoch, hosts in discovery_schedule if epoch is not None}
+default_hosts = discovery_schedule[-1][1] if len(discovery_schedule) > 0 else []
 
 
 def check_exit(epoch):
@@ -65,6 +72,7 @@ def log_state(state):
         'epoch': state.epoch,
         'batch': state.batch,
         'commits': state.commits,
+        'hostname': hostname,
         'rank': start_rank,
         'size': hvd.size(),
         'rendezvous': state.rendezvous}
@@ -97,7 +105,9 @@ def train(state):
         if hvd.rank() == 0:
             log_state(state)
 
-        if state.epoch < 2:
+        current_hosts = epoch_to_hosts.get(state.epoch, default_hosts)
+        next_hosts = epoch_to_hosts.get(state.epoch + 1, default_hosts)
+        if current_hosts != next_hosts:
             start = int(time.time())
             while state._host_messages.empty():
                 if int(time.time()) - start > 3:

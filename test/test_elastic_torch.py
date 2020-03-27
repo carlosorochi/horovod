@@ -19,11 +19,12 @@ from __future__ import print_function
 
 import contextlib
 import json
-import logging
 import os
-import pytest
 import unittest
 import warnings
+
+import mock
+import pytest
 
 from horovod.run.common.util import config_parser
 from horovod.run.run import parse_args, _run_elastic
@@ -36,23 +37,31 @@ epoch=0
 if [ -f {logfile} ]; then
     epoch=$(< {logfile} wc -l | tr -d '[:space:]')
 fi
-
-if [ "$epoch" == "0" ]; then
-    echo "localhost:2"
-elif [ "$epoch" == "1" ]; then
-    echo "localhost:2"
-    echo "127.0.0.1:2"
-else
-    echo "127.0.0.1:2"
-fi
 """
 
 
+def get_discovery_lines(schedule_step, start, end):
+    epoch, hosts = schedule_step
+    hosts_str = os.linesep.join(['echo "{}"'.format(host) for host in hosts])
+    if start and end:
+        return hosts_str + os.linesep
+    if start:
+        return 'if [ "$epoch" == "{}" ]; then'.format(epoch) + os.linesep + hosts_str + os.linesep
+    elif not start and not end:
+        return 'elif [ "$epoch" == "{}" ]; then'.format(epoch) + os.linesep + hosts_str + os.linesep
+    else:
+        return 'else' + os.linesep + hosts_str + os.linesep + 'fi' + os.linesep
+
+
 @contextlib.contextmanager
-def temp_discovery_script(logfile):
+def temp_discovery_script(logfile, discovery_schedule):
     with temppath() as discovery_script:
         with open(discovery_script, 'w') as f:
-            f.write(DISCOVERY_SCRIPT_TEMPLATE.format(logfile=logfile))
+            f.write(DISCOVERY_SCRIPT_TEMPLATE.format(logfile=logfile) + os.linesep)
+            for i, schedule_step in enumerate(discovery_schedule):
+                f.write(get_discovery_lines(schedule_step,
+                                            start=i == 0,
+                                            end=i == len(discovery_schedule) - 1))
         os.chmod(discovery_script, 0o755)
         yield discovery_script
 
@@ -62,10 +71,10 @@ class ElasticTorchTests(unittest.TestCase):
         super(ElasticTorchTests, self).__init__(*args, **kwargs)
         warnings.simplefilter('module')
 
-    def test_torch(self):
+    def _run(self, discovery_schedule, epoch_to_exit=2):
         training_script = os.path.join(os.path.dirname(__file__), 'data/elastic_torch_main.py')
         with temppath() as logfile:
-            with temp_discovery_script(logfile) as discovery_script:
+            with temp_discovery_script(logfile, discovery_schedule) as discovery_script:
                 command_args = ['horovodrun',
                                 '-np', '2',
                                 '--min-np', '2',
@@ -73,19 +82,39 @@ class ElasticTorchTests(unittest.TestCase):
                                 '--log-level', 'DEBUG',
                                 '--host-discovery-script', discovery_script,
                                 'python', training_script,
-                                '--epoch-to-exit', '10',
-                                '--logfile', logfile]
+                                '--epoch-to-exit', str(epoch_to_exit),
+                                '--logfile', logfile,
+                                '--discovery-schedule', json.dumps(discovery_schedule)]
                 print(' '.join(command_args))
                 with override_args(*command_args):
                     args = parse_args()
                     env = {}
                     config_parser.set_env_from_args(env, args)
-
                     _run_elastic(args)
 
                     with open(logfile, 'r') as f:
                         lines = f.readlines()
 
-                    for line in lines:
-                        state_dict = json.loads(line)
-                        print(state_dict)
+                    return [json.loads(line) for line in lines]
+
+    @mock.patch('horovod.run.elastic.driver.DISCOVER_HOSTS_FREQUENCY_SECS', 0.01)
+    def test_torch(self):
+        discovery_schedule = [
+            (0, ['localhost:2']),
+            (1, ['localhost:2', '127.0.0.1:2']),
+            (None, ['127.0.0.1:2'])
+        ]
+
+        results = self._run(discovery_schedule, epoch_to_exit=10)
+
+        assert len(results) == 3
+
+        assert results[0]['size'] == 2
+        assert results[0]['hostname'] == 'localhost'
+
+        assert results[1]['size'] == 4
+        assert results[1]['hostname'] == 'localhost'
+
+        assert results[2]['size'] == 2
+        assert results[2]['hostname'] == '127.0.0.1'
+        assert results[2]['rendezvous'] == 3
