@@ -196,6 +196,7 @@ def gloo_run_elastic(settings, env, command, get_common_intfs):
 
     driver.start(settings.num_proc, exec_command)
     res = driver.get_results()
+    driver.stop()
 
     for name, value in sorted(res.items(), key=lambda item: item[1][1]):
         exit_code, timestamp = value

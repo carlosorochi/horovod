@@ -71,7 +71,7 @@ class ElasticTorchTests(unittest.TestCase):
         super(ElasticTorchTests, self).__init__(*args, **kwargs)
         warnings.simplefilter('module')
 
-    def _run(self, discovery_schedule, epoch_to_exit=2):
+    def _run(self, discovery_schedule, epoch_to_exit=None):
         training_script = os.path.join(os.path.dirname(__file__), 'data/elastic_torch_main.py')
         with temppath() as logfile:
             with temp_discovery_script(logfile, discovery_schedule) as discovery_script:
@@ -82,10 +82,12 @@ class ElasticTorchTests(unittest.TestCase):
                                 '--log-level', 'DEBUG',
                                 '--host-discovery-script', discovery_script,
                                 'python', training_script,
-                                '--epoch-to-exit', str(epoch_to_exit),
                                 '--logfile', logfile,
                                 '--discovery-schedule', json.dumps(discovery_schedule)]
+                if epoch_to_exit is not None:
+                    command_args += ['--epoch-to-exit', str(epoch_to_exit)]
                 print(' '.join(command_args))
+
                 with override_args(*command_args):
                     args = parse_args()
                     env = {}
@@ -105,7 +107,7 @@ class ElasticTorchTests(unittest.TestCase):
             (None, ['127.0.0.1:2'])
         ]
 
-        results = self._run(discovery_schedule, epoch_to_exit=10)
+        results = self._run(discovery_schedule)
 
         assert len(results) == 3
 

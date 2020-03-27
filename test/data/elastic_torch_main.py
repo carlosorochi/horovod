@@ -34,7 +34,7 @@ parser.add_argument('--batches-per-commit', type=int, default=1,
                     help='number of batches per commit of the elastic state object')
 parser.add_argument('--epochs', type=int, default=3,
                     help='number of epochs')
-parser.add_argument('--epoch-to-exit', type=int, default=2,
+parser.add_argument('--epoch-to-exit', type=int,
                     help='epoch at the start of which to exit on rank 0')
 parser.add_argument('--logfile', default='/tmp/logfile.txt',
                     help='log file to record results (one line per epoch)')
@@ -84,10 +84,10 @@ def log_state(state):
 def train(state):
     state.rendezvous += 1
     for state.epoch in range(state.epoch, args.epochs):
+        print('epoch {} batch {}'.format(state.epoch, state.batch))
         check_exit(state.epoch)
 
         for state.batch in range(state.batch, args.batches_per_epoch):
-            print('epoch {} batch {}'.format(state.epoch, state.batch))
             optimizer.zero_grad()
             output = model(data)
             loss = F.cross_entropy(output, target)
