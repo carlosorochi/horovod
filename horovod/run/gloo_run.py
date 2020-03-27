@@ -62,25 +62,8 @@ class MultiFile(object):
             f.flush()
 
 
-def _create_exec_command(settings, env, local_host_names, run_command):
-    """
-    executes the jobs defined by run command on hosts.
-    :param hosts_alloc: list of dict indicating the allocating info.
-    For example,
-        [{'Hostname':'worker-0', 'Rank': 0, 'Local_rank': 0, 'Cross_rank':0,
-            'Size':2, 'Local_size':1, 'Cross_size':2},
-        {'Hostname':'worker-1', 'Rank': 1, 'Local_rank': 0, 'Cross_rank':1,
-            'Size':2, 'Local_size':1, 'Cross_size':2}
-        ]
-    :type hosts_alloc: list(dict)
-    :param remote_host_names: names that are resolved to one of the addresses
-    of remote hosts interfaces.
-    :type remote_host_names: set
-    :param run_command: command to execute
-    :type run_command: string
-    :return:
-    :rtype:
-    """
+def _create_exec_command(settings, env, run_command):
+    """Executes the jobs defined by run command on hosts."""
     ssh_port_arg = '-p {ssh_port}'.format(ssh_port=settings.ssh_port) if settings.ssh_port else ''
 
     # Create a event for communication between threads
@@ -119,7 +102,9 @@ def _create_exec_command(settings, env, local_host_names, run_command):
                           if env_util.is_exportable(key)]),
             run_command=run_command)
 
-        if host_name in local_host_names:
+        host_address = network.resolve_host_address(host_name)
+        local_addresses = network.get_local_host_addresses()
+        if host_address in local_addresses:
             command = local_command
         else:
             command = 'ssh -o StrictHostKeyChecking=no {host} {ssh_port_arg} ' \
@@ -207,7 +192,7 @@ def gloo_run_elastic(settings, env, command, get_common_intfs):
 
     common_intfs, local_host_names = get_common_intfs(driver.get_available_hosts(), settings)
     run_command = get_run_command(command, common_intfs, global_rendezv_port, elastic=True)
-    exec_command = _create_exec_command(settings, env, local_host_names, run_command)
+    exec_command = _create_exec_command(settings, env, run_command)
 
     driver.start(settings.num_proc, exec_command)
     res = driver.get_results()
@@ -221,7 +206,7 @@ def gloo_run_elastic(settings, env, command, get_common_intfs):
                                .format(name=name, code=exit_code))
 
 
-def gloo_run(settings, local_host_names, common_intfs, env, command):
+def gloo_run(settings, common_intfs, env, command):
     # Make the output directory if it does not exist
     if settings.output_filename:
         _mkdir_p(settings.output_filename)
@@ -237,7 +222,7 @@ def gloo_run(settings, local_host_names, common_intfs, env, command):
     global_rendezv_port = rendezvous.start_server()
     rendezvous.httpd.init(host_alloc_plan)
     run_command = get_run_command(command, common_intfs, global_rendezv_port)
-    exec_command = _create_exec_command(settings, env, local_host_names, run_command)
+    exec_command = _create_exec_command(settings, env, run_command)
 
     # Each thread will use ssh command to launch the job on each remote host. If an
     # error occurs in one thread, entire process will be terminated. Otherwise,

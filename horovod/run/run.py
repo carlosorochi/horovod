@@ -839,7 +839,7 @@ def _run(args):
         command = [sys.executable, '-m', 'horovod.run.run_task', str(driver_ip), str(run_func_server_port)]
 
         try:
-            _launch_job(args, local_host_names, settings, common_intfs, command)
+            _launch_job(args, settings, common_intfs, command)
             results = [None] * args.np
             # TODO: make it parallel to improve performance
             for i in range(args.np):
@@ -850,7 +850,7 @@ def _run(args):
             run_func_server.shutdown_server()
     else:
         command = args.command
-        _launch_job(args, local_host_names, settings, common_intfs, command)
+        _launch_job(args, settings, common_intfs, command)
         return None
 
 
@@ -890,7 +890,7 @@ def _run_elastic(args):
     gloo_run_elastic(settings, env, args.command, get_common_intfs)
 
 
-def _launch_job(args, local_host_names, settings, common_intfs, command):
+def _launch_job(args, settings, common_intfs, command):
     env = os.environ.copy()
     config_parser.set_env_from_args(env, args)
 
@@ -898,7 +898,7 @@ def _launch_job(args, local_host_names, settings, common_intfs, command):
         if not gloo_built(verbose=(settings.verbose >= 2)):
             raise ValueError('Gloo support has not been built.  If this is not expected, ensure CMake is installed '
                              'and reinstall Horovod with HOROVOD_WITH_GLOO=1 to debug the build error.')
-        gloo_run(settings, local_host_names, common_intfs, env, command)
+        gloo_run(settings, common_intfs, env, command)
     elif args.use_mpi:
         if not mpi_built(verbose=(settings.verbose >= 2)):
             raise ValueError('MPI support has not been built.  If this is not expected, ensure MPI is installed '
@@ -908,7 +908,7 @@ def _launch_job(args, local_host_names, settings, common_intfs, command):
         if mpi_built(verbose=(settings.verbose >= 2)):
             mpi_run(settings, common_intfs, env, command)
         elif gloo_built(verbose=(settings.verbose >= 2)):
-            gloo_run(settings, local_host_names, common_intfs, env, command)
+            gloo_run(settings, common_intfs, env, command)
         else:
             raise ValueError('Neither MPI nor Gloo support has been built. Try reinstalling Horovod ensuring that '
                              'either MPI is installed (MPI) or CMake is installed (Gloo).')

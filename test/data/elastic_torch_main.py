@@ -18,6 +18,7 @@ from __future__ import absolute_import
 import argparse
 import json
 import os
+import time
 
 import torch
 import torch.nn.functional as F
@@ -42,18 +43,13 @@ args = parser.parse_args()
 
 hvd.init()
 
-if torch.cuda.is_available():
-    torch.cuda.set_device(hvd.local_rank())
-
 batch_size = 32
 data = torch.randn(batch_size, 2)
 target = torch.LongTensor(batch_size).random_() % 2
 
-
 model = torch.nn.Sequential(torch.nn.Linear(2, 2))
 optimizer = torch.optim.SGD(model.parameters(), lr=0.001 * hvd.size())
 optimizer = hvd.DistributedOptimizer(optimizer, named_parameters=model.named_parameters())
-
 
 start_rank = int(os.environ.get('HOROVOD_RANK', 0))
 
@@ -89,6 +85,7 @@ def train(state):
             optimizer.step()
 
             if (state.batch + 1) % args.batches_per_commit == 0:
+                # print('commit empty? {}'.format(state._host_messages.empty()))
                 state.commits += 1
                 state.commit()
 
@@ -98,6 +95,15 @@ def train(state):
 
         if hvd.rank() == 0:
             log_state(state)
+
+        if state.epoch < 2:
+            start = int(time.time())
+            while state._host_messages.empty():
+                if int(time.time()) - start > 3:
+                    raise TimeoutError('Timed out waiting for notifications from driver.')
+                print('sleep')
+                time.sleep(0.1)
+        print('empty? {}'.format(state._host_messages.empty()))
 
 
 def on_state_reset():

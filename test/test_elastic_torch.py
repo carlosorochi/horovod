@@ -42,6 +42,7 @@ elif [ "$epoch" == "1" ]; then
     echo "localhost:2"
     echo "127.0.0.1:2"
 else
+    echo "localhost:2"
     echo "127.0.0.1:2"
 fi
 """
@@ -69,6 +70,7 @@ class ElasticTorchTests(unittest.TestCase):
                                 '-np', '2',
                                 '--min-np', '2',
                                 '--max-np', '4',
+                                '--log-level', 'DEBUG',
                                 '--host-discovery-script', discovery_script,
                                 'python', training_script,
                                 '--epoch-to-exit', '10',

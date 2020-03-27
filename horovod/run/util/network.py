@@ -22,15 +22,17 @@ import random
 from socket import AF_INET
 from psutil import net_if_addrs
 
+from horovod.common.util import _cache
 from horovod.run.util import threads
 
 
-def _get_local_host_addresses():
-    local_addresses = []
+@_cache
+def get_local_host_addresses():
+    local_addresses = set()
     for intf_info_list in psutil.net_if_addrs().values():
         for intf_info in intf_info_list:
             if intf_info.family == socket.AF_INET:
-                local_addresses.append(intf_info.address)
+                local_addresses.add(intf_info.address)
     return local_addresses
 
 
@@ -46,18 +48,19 @@ def get_local_intfs(nic=None):
     return common_intfs
 
 
-def filter_local_addresses(all_host_names):
-    local_addresses = _get_local_host_addresses()
+def resolve_host_address(host_name):
+    try:
+        return socket.gethostbyname(host_name)
+    except socket.gaierror:
+        return None
 
-    def resolve_host_name(host_name):
-        try:
-            return socket.gethostbyname(host_name)
-        except socket.gaierror:
-            return None
+
+def filter_local_addresses(all_host_names):
+    local_addresses = get_local_host_addresses()
 
     args_list = [[host] for host in all_host_names]
     host_addresses = threads.execute_function_multithreaded(
-        resolve_host_name, args_list)
+        resolve_host_address, args_list)
 
     # host_addresses is a map
     remote_host_names = []
