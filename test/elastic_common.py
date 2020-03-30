@@ -50,7 +50,7 @@ def _get_discovery_lines(schedule_step, start, end):
 
 
 @contextlib.contextmanager
-def temp_discovery_script(logfile, discovery_schedule):
+def _temp_discovery_script(logfile, discovery_schedule):
     with temppath() as discovery_script:
         with open(discovery_script, 'w') as f:
             f.write(DISCOVERY_SCRIPT_TEMPLATE.format(logfile=logfile) + os.linesep)
@@ -69,7 +69,7 @@ class BaseElasticTests(object):
 
     def _run(self, discovery_schedule, exit_schedule=None, np=2, min_np=2, max_np=4):
         with temppath() as logfile:
-            with temp_discovery_script(logfile, discovery_schedule) as discovery_script:
+            with _temp_discovery_script(logfile, discovery_schedule) as discovery_script:
                 command_args = ['horovodrun',
                                 '-np', str(np),
                                 '--min-np', str(min_np),
