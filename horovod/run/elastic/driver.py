@@ -35,6 +35,7 @@ SUCCESS = 'SUCCESS'
 FAILURE = 'FAILURE'
 
 DISCOVER_HOSTS_FREQUENCY_SECS = 1.0
+START_TIMEOUT_SECS = 600
 
 
 def _epoch_time_s():
@@ -181,7 +182,7 @@ class ElasticDriver(object):
         self._world_size = 0
 
         self._wait_hosts_cond = threading.Condition()
-        self._start_timeout = start_timeout or int(os.getenv('HOROVOD_ELASTIC_START_TIMEOUT', '600'))
+        self._start_timeout = start_timeout or int(os.getenv('HOROVOD_ELASTIC_START_TIMEOUT', START_TIMEOUT_SECS))
 
         self._create_worker_fn = None
         self._hosts = defaultdict(Host)
@@ -263,7 +264,11 @@ class ElasticDriver(object):
             self.stop()
             return
 
-        self._activate_hosts(self._min_np)
+        try:
+            self._activate_hosts(self._min_np)
+        except Exception:
+            logging.exception('failed to activate new hosts -> stop running')
+            self.stop()
 
     def world_size(self):
         return self._world_size
@@ -364,7 +369,8 @@ class ElasticDriver(object):
         self._rendezvous.httpd.init(host_assignments_list)
 
     def _count_available_slots(self):
-        return sum([self._get_slots(host) for host in self._available_hosts])
+        return sum([self._get_slots(host) for host in self._available_hosts
+                    if not self._hosts[host].is_blacklisted()])
 
     def _get_slots(self, host):
         if host in self._available_slots:

@@ -71,14 +71,14 @@ class ElasticTorchTests(unittest.TestCase):
         super(ElasticTorchTests, self).__init__(*args, **kwargs)
         warnings.simplefilter('module')
 
-    def _run(self, discovery_schedule, exit_schedule=None):
+    def _run(self, discovery_schedule, exit_schedule=None, np=2, min_np=2, max_np=4):
         training_script = os.path.join(os.path.dirname(__file__), 'data/elastic_torch_main.py')
         with temppath() as logfile:
             with temp_discovery_script(logfile, discovery_schedule) as discovery_script:
                 command_args = ['horovodrun',
-                                '-np', '2',
-                                '--min-np', '2',
-                                '--max-np', '4',
+                                '-np', str(np),
+                                '--min-np', str(min_np),
+                                '--max-np', str(max_np),
                                 '--log-level', 'DEBUG',
                                 '--host-discovery-script', discovery_script,
                                 'python', training_script,
@@ -154,7 +154,7 @@ class ElasticTorchTests(unittest.TestCase):
     @mock.patch('horovod.run.elastic.driver.DISCOVER_HOSTS_FREQUENCY_SECS', 0.01)
     def test_all_ranks_failure(self):
         discovery_schedule = [
-            (0, ['localhost:2', '127.0.0.1:2']),
+            (None, ['localhost:2', '127.0.0.1:2']),
         ]
 
         exit_schedule = {
@@ -166,9 +166,9 @@ class ElasticTorchTests(unittest.TestCase):
             self._run(discovery_schedule, exit_schedule=exit_schedule)
 
     @mock.patch('horovod.run.elastic.driver.DISCOVER_HOSTS_FREQUENCY_SECS', 0.01)
-    def test_all_hosts_blacklisted_failure(self):
+    def test_all_hosts_blacklisted(self):
         discovery_schedule = [
-            (0, ['localhost:2', '127.0.0.1:2']),
+            (None, ['localhost:2', '127.0.0.1:2']),
         ]
 
         exit_schedule = {
@@ -178,3 +178,18 @@ class ElasticTorchTests(unittest.TestCase):
         message = 'Horovod detected that one or more processes exited with non-zero status'
         with pytest.raises(RuntimeError, match=message):
             self._run(discovery_schedule, exit_schedule=exit_schedule)
+
+    @mock.patch('horovod.run.elastic.driver.START_TIMEOUT_SECS', 1)
+    @mock.patch('horovod.run.elastic.driver.DISCOVER_HOSTS_FREQUENCY_SECS', 0.01)
+    def test_min_hosts_timeout(self):
+        discovery_schedule = [
+            (None, ['localhost:2', '127.0.0.1:2']),
+        ]
+
+        exit_schedule = {
+            str((1, 0)): [0],
+        }
+
+        message = 'Horovod detected that one or more processes exited with non-zero status'
+        with pytest.raises(RuntimeError, match=message):
+            self._run(discovery_schedule, exit_schedule=exit_schedule, np=4, min_np=4)
