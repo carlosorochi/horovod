@@ -18,7 +18,6 @@ from __future__ import absolute_import
 import contextlib
 import json
 import os
-import unittest
 
 import mock
 import pytest
@@ -63,10 +62,10 @@ def temp_discovery_script(logfile, discovery_schedule):
         yield discovery_script
 
 
-class AbstractElasticTests(unittest.TestCase):
+class BaseElasticTests(object):
     def __init__(self, training_script, *args, **kwargs):
         self._training_script = training_script
-        super(AbstractElasticTests, self).__init__(*args, **kwargs)
+        super(BaseElasticTests, self).__init__(*args, **kwargs)
 
     def _run(self, discovery_schedule, exit_schedule=None, np=2, min_np=2, max_np=4):
         with temppath() as logfile:

@@ -18,12 +18,13 @@ from __future__ import division
 from __future__ import print_function
 
 import os
+import unittest
 import warnings
 
-from elastic_common import AbstractElasticTests
+from elastic_common import BaseElasticTests
 
 
-class ElasticTorchTests(AbstractElasticTests):
+class ElasticTorchTests(BaseElasticTests, unittest.TestCase):
     def __init__(self, *args, **kwargs):
         training_script = os.path.join(os.path.dirname(__file__), 'data/elastic_torch_main.py')
         super(ElasticTorchTests, self).__init__(training_script, *args, **kwargs)
