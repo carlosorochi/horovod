@@ -45,8 +45,8 @@ args = parser.parse_args()
 hvd.init()
 
 batch_size = 32
-data = tf.random.uniform([args.batch_size, 2])
-target = tf.random.uniform([args.batch_size, 1], minval=0, maxval=2, dtype=tf.int64)
+data = tf.random.uniform([batch_size, 2])
+target = tf.random.uniform([batch_size, 1], minval=0, maxval=2, dtype=tf.int64)
 
 lr = 0.001
 model = tf.keras.Sequential([tf.keras.layers.Dense(2, activation='softmax')])
