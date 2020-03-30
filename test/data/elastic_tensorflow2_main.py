@@ -20,10 +20,9 @@ import json
 import os
 import time
 
-import torch
-import torch.nn.functional as F
+import tensorflow as tf
 
-import horovod.torch as hvd
+import horovod.tensorflow as hvd
 
 parser = argparse.ArgumentParser(description='PyTorch Elastic Test',
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -46,13 +45,12 @@ args = parser.parse_args()
 hvd.init()
 
 batch_size = 32
-data = torch.randn(batch_size, 2)
-target = torch.LongTensor(batch_size).random_() % 2
+data = tf.random.uniform([args.batch_size, 2])
+target = tf.random.uniform([args.batch_size, 1], minval=0, maxval=2, dtype=tf.int64)
 
 lr = 0.001
-model = torch.nn.Sequential(torch.nn.Linear(2, 2))
-optimizer = torch.optim.SGD(model.parameters(), lr=lr * hvd.size())
-optimizer = hvd.DistributedOptimizer(optimizer, named_parameters=model.named_parameters())
+model = tf.keras.Sequential([tf.keras.layers.Dense(2, activation='softmax')])
+optimizer = tf.optimizers.SGD(lr * hvd.size())
 
 hostname = os.environ.get('HOROVOD_HOSTNAME')
 start_rank = int(os.environ.get('HOROVOD_RANK', 0))
@@ -87,6 +85,23 @@ def log_state(state):
         f.write(json.dumps(state_dict) + os.linesep)
 
 
+@tf.function
+def step():
+    # Horovod: use DistributedGradientTape
+    with tf.GradientTape() as tape:
+        probs = model(data, training=True)
+        loss = tf.losses.categorical_crossentropy(target, probs)
+
+    # Horovod: add Horovod Distributed GradientTape.
+    tape = hvd.DistributedGradientTape(tape)
+
+    gradients = tape.gradient(loss, model.trainable_variables)
+    optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+
+
+step()
+
+
 @hvd.elastic.run
 def train(state):
     state.rendezvous += 1
@@ -95,12 +110,7 @@ def train(state):
 
         while state.batch < args.batches_per_epoch:
             check_exit(state.epoch, state.batch)
-
-            optimizer.zero_grad()
-            output = model(data)
-            loss = F.cross_entropy(output, target)
-            loss.backward()
-            optimizer.step()
+            step()
 
             state.batch += 1
             if state.batch % args.batches_per_commit == 0:
@@ -127,10 +137,9 @@ def train(state):
 
 
 def on_state_reset():
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = lr * hvd.size()
+    optimizer.lr.assign(lr * hvd.size())
 
 
-state = hvd.elastic.TorchState(model, optimizer, batch=0, epoch=0, commits=0, rendezvous=0)
+state = hvd.elastic.TensorFlowKerasState(model, optimizer, batch=0, epoch=0, commits=0, rendezvous=0)
 state.register_reset_callbacks([on_state_reset])
 train(state)
