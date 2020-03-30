@@ -107,6 +107,8 @@ class ElasticTorchTests(unittest.TestCase):
         ]
 
         results = self._run(discovery_schedule)
+        for result in results:
+            print(result)
 
         assert len(results) == 3
 
@@ -150,7 +152,7 @@ class ElasticTorchTests(unittest.TestCase):
         assert results[2]['rendezvous'] == 2
 
     @mock.patch('horovod.run.elastic.driver.DISCOVER_HOSTS_FREQUENCY_SECS', 0.01)
-    def test_total_job_failure(self):
+    def test_all_ranks_failure(self):
         discovery_schedule = [
             (0, ['localhost:2', '127.0.0.1:2']),
         ]
@@ -164,7 +166,7 @@ class ElasticTorchTests(unittest.TestCase):
             self._run(discovery_schedule, exit_schedule=exit_schedule)
 
     @mock.patch('horovod.run.elastic.driver.DISCOVER_HOSTS_FREQUENCY_SECS', 0.01)
-    def test_all_hosts_failure(self):
+    def test_all_hosts_blacklisted_failure(self):
         discovery_schedule = [
             (0, ['localhost:2', '127.0.0.1:2']),
         ]

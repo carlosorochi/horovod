@@ -24,6 +24,8 @@ from collections import defaultdict
 
 import six
 
+from six.moves import queue
+
 from horovod.run.common.util import hosts, safe_shell_exec, timeout
 from horovod.run.elastic.worker import WorkerNotificationClient
 
@@ -143,31 +145,23 @@ class Host(object):
 
 
 class Results(object):
-    def __init__(self, driver):
-        self._driver = driver
+    def __init__(self):
         self._results = {}
-        self._wait_cond = threading.Condition()
+        self._worker_threads = queue.Queue()
+
+    def expect(self, worker_thread):
+        self._worker_threads.put(worker_thread)
 
     def add_result(self, key, value):
-        self._wait_cond.acquire()
-        try:
-            if key in self._results:
-                return
-
-            self._results[key] = value
-            if len(self._results) == self._driver.world_size():
-                self._wait_cond.notify_all()
-        finally:
-            self._wait_cond.release()
+        if key in self._results:
+            return
+        self._results[key] = value
 
     def get_results(self):
-        self._wait_cond.acquire()
-        try:
-            while len(self._results) < self._driver.world_size():
-                self._wait_cond.wait()
-            return self._results
-        finally:
-            self._wait_cond.release()
+        while not self._worker_threads.empty():
+            worker_thread = self._worker_threads.get()
+            worker_thread.join()
+        return self._results
 
 
 class ElasticDriver(object):
@@ -194,7 +188,7 @@ class ElasticDriver(object):
         self._worker_clients = {}
 
         self._worker_registry = WorkerStateRegistry(self)
-        self._results = Results(self)
+        self._results = Results()
         self._shutdown = threading.Event()
 
         self._discovery_thread = threading.Thread(target=self._discover_hosts)
@@ -250,16 +244,24 @@ class ElasticDriver(object):
 
         # Check that all processes failed, indicating that processing should stop
         if self._worker_registry.count(FAILURE) == self._world_size:
-            logging.info('failure count == {} -> stop running'.format(self._world_size))
+            logging.error('failure count == {} -> stop running'.format(self._world_size))
             self.stop()
             return
 
         # Check for failures, and add them to the blacklisted hosts list
+        blacklisted_slots = 0
         failures = self._worker_registry.get(FAILURE)
         for host, slot in failures:
             if not self._hosts[host].is_blacklisted():
-                logging.info('blacklist failing host: {}'.format(host))
+                logging.warning('blacklist failing host: {}'.format(host))
             self._hosts[host].blacklist()
+            blacklisted_slots += self._get_slots(host)
+
+        # If there are no active hosts that aren't blacklisted, treat this as job failure
+        if blacklisted_slots == self._world_size:
+            logging.error('blacklisted slots count == {} -> stop running'.format(self._world_size))
+            self.stop()
+            return
 
         self._activate_hosts(self._min_np)
 
@@ -386,6 +388,7 @@ class ElasticDriver(object):
         thread = threading.Thread(target=run_worker)
         thread.daemon = True
         thread.start()
+        self._results.expect(thread)
 
     def _handle_worker_exit(self, slot_info, exit_code, timestamp):
         if not self.has_rank_assignment(slot_info.hostname, slot_info.local_rank):

@@ -107,22 +107,23 @@ def train(state):
                 state.commits += 1
                 state.commit()
 
-        state.epoch += 1
-        state.batch = 0
-        state.commits += 1
-        state.commit()
-
         if hvd.rank() == 0:
             log_state(state)
 
         current_hosts = epoch_to_hosts.get(state.epoch, default_hosts)
         next_hosts = epoch_to_hosts.get(state.epoch + 1, default_hosts)
         if current_hosts != next_hosts:
+            print('host changes: {} -> {}'.format(current_hosts, next_hosts))
             start = int(time.time())
             while state._host_messages.empty():
                 if int(time.time()) - start > 3:
                     raise TimeoutError('Timed out waiting for notifications from driver.')
                 time.sleep(0.1)
+
+        state.epoch += 1
+        state.batch = 0
+        state.commits += 1
+        state.commit()
 
 
 def on_state_reset():
