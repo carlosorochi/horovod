@@ -34,12 +34,12 @@ parser.add_argument('--batches-per-commit', type=int, default=1,
                     help='number of batches per commit of the elastic state object')
 parser.add_argument('--epochs', type=int, default=3,
                     help='number of epochs')
-parser.add_argument('--epoch-to-exit', type=int,
-                    help='epoch at the start of which to exit on rank 0')
 parser.add_argument('--logfile', default='/tmp/logfile.txt',
                     help='log file to record results (one line per epoch)')
 parser.add_argument('--discovery-schedule', default='[]',
                     help='JSON string specifying schedule of host updates each epoch')
+parser.add_argument('--exit-schedule',
+                    help='JSON string mapping from (epoch, batch) to list of ranks to exit at that time')
 
 args = parser.parse_args()
 
@@ -61,10 +61,16 @@ discovery_schedule = json.loads(args.discovery_schedule)
 epoch_to_hosts = {epoch: hosts for epoch, hosts in discovery_schedule if epoch is not None}
 default_hosts = discovery_schedule[-1][1] if len(discovery_schedule) > 0 else []
 
+exit_schedule = json.loads(args.exit_schedule) if args.exit_schedule else {}
 
-def check_exit(epoch):
-    if epoch == args.epoch_to_exit and start_rank == 0:
-        raise RuntimeError('check_rank and exit')
+
+def check_exit(epoch, batch):
+    key = str((epoch, batch))
+    if key in exit_schedule:
+        ranks_to_exit = exit_schedule[key]
+        if start_rank in ranks_to_exit:
+            raise RuntimeError('check_rank and exit epoch={} batch={} start_rank={} rank={}'
+                               .format(epoch, batch, start_rank, hvd.rank()))
 
 
 def log_state(state):
@@ -73,7 +79,8 @@ def log_state(state):
         'batch': state.batch,
         'commits': state.commits,
         'hostname': hostname,
-        'rank': start_rank,
+        'start_rank': start_rank,
+        'rank': hvd.rank(),
         'size': hvd.size(),
         'rendezvous': state.rendezvous}
     with open(args.logfile, 'a') as f:
@@ -83,21 +90,24 @@ def log_state(state):
 @hvd.elastic.run
 def train(state):
     state.rendezvous += 1
-    for state.epoch in range(state.epoch, args.epochs):
+    while state.epoch < args.epochs:
         print('epoch {} batch {}'.format(state.epoch, state.batch))
-        check_exit(state.epoch)
 
-        for state.batch in range(state.batch, args.batches_per_epoch):
+        while state.batch < args.batches_per_epoch:
+            check_exit(state.epoch, state.batch)
+
             optimizer.zero_grad()
             output = model(data)
             loss = F.cross_entropy(output, target)
             loss.backward()
             optimizer.step()
 
-            if (state.batch + 1) % args.batches_per_commit == 0:
+            state.batch += 1
+            if state.batch % args.batches_per_commit == 0:
                 state.commits += 1
                 state.commit()
 
+        state.epoch += 1
         state.batch = 0
         state.commits += 1
         state.commit()

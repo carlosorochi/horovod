@@ -227,6 +227,7 @@ class ElasticDriver(object):
 
     def stop(self):
         self._shutdown.set()
+        self._discovery_thread.join()
 
     def finished(self):
         return self._shutdown.is_set()

@@ -71,7 +71,7 @@ class ElasticTorchTests(unittest.TestCase):
         super(ElasticTorchTests, self).__init__(*args, **kwargs)
         warnings.simplefilter('module')
 
-    def _run(self, discovery_schedule, epoch_to_exit=None):
+    def _run(self, discovery_schedule, exit_schedule=None):
         training_script = os.path.join(os.path.dirname(__file__), 'data/elastic_torch_main.py')
         with temppath() as logfile:
             with temp_discovery_script(logfile, discovery_schedule) as discovery_script:
@@ -83,9 +83,8 @@ class ElasticTorchTests(unittest.TestCase):
                                 '--host-discovery-script', discovery_script,
                                 'python', training_script,
                                 '--logfile', logfile,
-                                '--discovery-schedule', json.dumps(discovery_schedule)]
-                if epoch_to_exit is not None:
-                    command_args += ['--epoch-to-exit', str(epoch_to_exit)]
+                                '--discovery-schedule', json.dumps(discovery_schedule),
+                                '--exit-schedule', json.dumps(exit_schedule or {})]
                 print(' '.join(command_args))
 
                 with override_args(*command_args):
@@ -100,23 +99,80 @@ class ElasticTorchTests(unittest.TestCase):
                     return [json.loads(line) for line in lines]
 
     @mock.patch('horovod.run.elastic.driver.DISCOVER_HOSTS_FREQUENCY_SECS', 0.01)
-    def test_torch(self):
+    def test_hosts_added_and_removed(self):
         discovery_schedule = [
             (0, ['localhost:2']),
             (1, ['localhost:2', '127.0.0.1:2']),
-            (None, ['127.0.0.1:2'])
+            (None, ['127.0.0.1:2']),
         ]
 
         results = self._run(discovery_schedule)
 
         assert len(results) == 3
 
+        assert results[0]['start_rank'] == 0
         assert results[0]['size'] == 2
         assert results[0]['hostname'] == 'localhost'
 
+        assert results[1]['start_rank'] == 0
         assert results[1]['size'] == 4
         assert results[1]['hostname'] == 'localhost'
 
+        assert results[2]['start_rank'] == 2
         assert results[2]['size'] == 2
         assert results[2]['hostname'] == '127.0.0.1'
         assert results[2]['rendezvous'] == 3
+
+    @mock.patch('horovod.run.elastic.driver.DISCOVER_HOSTS_FREQUENCY_SECS', 0.01)
+    def test_single_rank_failure(self):
+        discovery_schedule = [
+            (None, ['localhost:2', '127.0.0.1:2']),
+        ]
+
+        exit_schedule = {
+            str((1, 0)): [0],
+        }
+
+        results = self._run(discovery_schedule, exit_schedule=exit_schedule)
+
+        assert len(results) == 3
+
+        assert results[0]['start_rank'] == 0
+        assert results[0]['size'] == 4
+        assert results[0]['rendezvous'] == 1
+
+        assert results[1]['start_rank'] == 2
+        assert results[1]['size'] == 2
+        assert results[1]['rendezvous'] == 2
+
+        assert results[2]['start_rank'] == 2
+        assert results[2]['size'] == 2
+        assert results[2]['rendezvous'] == 2
+
+    @mock.patch('horovod.run.elastic.driver.DISCOVER_HOSTS_FREQUENCY_SECS', 0.01)
+    def test_total_job_failure(self):
+        discovery_schedule = [
+            (0, ['localhost:2', '127.0.0.1:2']),
+        ]
+
+        exit_schedule = {
+            str((1, 0)): [0, 1, 2, 3],
+        }
+
+        message = 'Horovod detected that one or more processes exited with non-zero status'
+        with pytest.raises(RuntimeError, match=message):
+            self._run(discovery_schedule, exit_schedule=exit_schedule)
+
+    @mock.patch('horovod.run.elastic.driver.DISCOVER_HOSTS_FREQUENCY_SECS', 0.01)
+    def test_all_hosts_failure(self):
+        discovery_schedule = [
+            (0, ['localhost:2', '127.0.0.1:2']),
+        ]
+
+        exit_schedule = {
+            str((1, 0)): [0, 2],
+        }
+
+        message = 'Horovod detected that one or more processes exited with non-zero status'
+        with pytest.raises(RuntimeError, match=message):
+            self._run(discovery_schedule, exit_schedule=exit_schedule)
